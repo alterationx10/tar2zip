@@ -1,37 +1,132 @@
+// Function to validate tar header
+function validateTarHeader(header) {
+    // Check magic number ("ustar" at offset 257)
+    const ustarMagic = new TextDecoder().decode(header.slice(257, 262));
+    if (ustarMagic !== "ustar") {
+        return false;
+    }
+
+    // Verify checksum
+    const storedChecksum = parseInt(new TextDecoder().decode(header.slice(148, 156)).trim(), 8);
+    
+    // Calculate checksum: sum of all bytes, with checksum field treated as spaces
+    let calculatedChecksum = 0;
+    for (let i = 0; i < 512; i++) {
+        if (i >= 148 && i < 156) {
+            calculatedChecksum += 32; // ASCII space
+        } else {
+            calculatedChecksum += header[i];
+        }
+    }
+    
+    return storedChecksum === calculatedChecksum;
+}
+
 // Function to process tar data and create zip
 async function processTarToZip(uint8Array, zip) {
     let offset = 0;
+    let fileCount = 0;
+    const maxConsecutiveErrors = 3;
+    let consecutiveErrors = 0;
+
     while (offset < uint8Array.length) {
-        // Read tar header
-        const header = uint8Array.slice(offset, offset + 512);
-        
-        // Check for end of archive (empty block)
-        if (header.every(byte => byte === 0)) {
-            break;
-        }
-        
-        // Get filename (100 bytes)
-        const filename = new TextDecoder().decode(header.slice(0, 100)).trim().replace(/\0/g, '');
-        
-        // Get file type (1 byte at offset 156)
-        const fileType = String.fromCharCode(header[156]);
-        
-        // Get file size (12 bytes, octal)
-        const sizeStr = new TextDecoder().decode(header.slice(124, 136)).trim();
-        const size = parseInt(sizeStr, 8);
-        
-        // Skip PaxHeader entries and process only regular files
-        if (size > 0 && !filename.includes("PaxHeader") && fileType === '0') {
-            // Get file content
-            const content = uint8Array.slice(offset + 512, offset + 512 + size);
+        try {
+            // Ensure we have enough bytes for a header
+            if (offset + 512 > uint8Array.length) {
+                throw new Error("Unexpected end of tar file");
+            }
+
+            // Read tar header
+            const header = uint8Array.slice(offset, offset + 512);
             
-            // Add to ZIP
-            zip.file(filename, content);
+            // Check for end of archive (empty block)
+            if (header.every(byte => byte === 0)) {
+                if (fileCount === 0) {
+                    throw new Error("No valid files found in the archive");
+                }
+                break;
+            }
+
+            // Validate tar header
+            if (!validateTarHeader(header)) {
+                consecutiveErrors++;
+                if (consecutiveErrors >= maxConsecutiveErrors) {
+                    throw new Error("Multiple invalid headers found - file might be corrupted");
+                }
+                offset += 512;
+                continue;
+            }
+            consecutiveErrors = 0;
+
+            // Get filename (100 bytes)
+            const filename = new TextDecoder().decode(header.slice(0, 100)).trim().replace(/\0/g, '');
+            
+            // Get file type (1 byte at offset 156)
+            const fileType = String.fromCharCode(header[156]);
+            
+            // Get file size (12 bytes, octal)
+            const sizeStr = new TextDecoder().decode(header.slice(124, 136)).trim();
+            const size = parseInt(sizeStr, 8);
+            
+            // Get link name for symbolic links (100 bytes)
+            const linkname = new TextDecoder().decode(header.slice(157, 257)).trim().replace(/\0/g, '');
+
+            // Skip PaxHeader entries
+            if (filename.includes("PaxHeader")) {
+                offset += 512 + (Math.ceil(size / 512) * 512);
+                continue;
+            }
+
+            // Process file based on type
+            switch (fileType) {
+                case '0': // Regular file
+                case '': // For older tar formats
+                    if (size > 0) {
+                        // Ensure we have enough bytes for the file content
+                        if (offset + 512 + size > uint8Array.length) {
+                            throw new Error(`Unexpected end of file while reading ${filename}`);
+                        }
+                        const content = uint8Array.slice(offset + 512, offset + 512 + size);
+                        zip.file(filename, content);
+                        fileCount++;
+                    }
+                    break;
+
+                case '2': // Symbolic link
+                    // Store symbolic link as a text file with the link target
+                    zip.file(filename, linkname, { comment: "Symbolic Link" });
+                    fileCount++;
+                    break;
+
+                case '5': // Directory
+                    zip.folder(filename);
+                    fileCount++;
+                    break;
+
+                // Other types (3: character device, 4: block device, 6: fifo) are skipped
+            }
+            
+            // Move to next file (accounting for padding)
+            offset += 512 + (Math.ceil(size / 512) * 512);
+
+        } catch (error) {
+            // If we encounter an error while processing a file, try to skip to the next one
+            if (error.message.includes("Unexpected end")) {
+                throw error; // These are fatal errors
+            }
+            consecutiveErrors++;
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+                throw new Error(`Failed to process tar file: ${error.message}`);
+            }
+            // Try to skip to the next 512-byte boundary
+            offset = Math.ceil(offset / 512) * 512;
         }
-        
-        // Move to next file (accounting for padding)
-        offset += 512 + (Math.ceil(size / 512) * 512);
     }
+
+    if (fileCount === 0) {
+        throw new Error("No valid files found in the archive");
+    }
+
     return zip;
 }
 
