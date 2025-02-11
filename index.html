@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tar2Zip Converter</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Tar2Zip Converter</h1>
+        <p class="description">Convert .tar or .tar.gz files to .zip format directly in your browser. Your files stay private - no server upload needed!</p>
+        
+        <div class="upload-container">
+            <div class="drop-zone" id="dropZone">
+                <input type="file" id="fileInput" accept=".tar,.tar.gz,.tgz" class="file-input">
+                <div class="drop-zone-text">
+                    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='50' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpolyline points='17 8 12 3 7 8'/%3E%3Cline x1='12' y1='3' x2='12' y2='15'/%3E%3C/svg%3E" alt="Upload icon" class="upload-icon">
+                    <p>Drop your .tar or .tar.gz file here<br>or click to browse</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="progress-container" style="display: none;">
+            <div class="progress-bar">
+                <div class="progress" id="progress"></div>
+            </div>
+            <p class="progress-text" id="progressText">Converting...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html> 
